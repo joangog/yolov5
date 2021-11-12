@@ -195,6 +195,32 @@ class SPPF(nn.Module):
             return self.cv2(torch.cat([x, y1, y2, self.m(y2)], 1))
 
 
+class SEBlock(nn.Module):
+    # Squeeze-and-Excitation Block https://arxiv.org/abs/1709.01507
+    def __init__(self, c, ratio):
+        super().__init__()
+        self.c = c
+        self.ratio = ratio
+        self.gap = nn.AvgPool2d  # 2D Global Average Pooling
+        self.fc1 = nn.Linear(c, c // ratio)
+        self.fc2 = nn.Linear(c // ratio, c)
+        self.relu = nn.ReLU()
+        self.sig = nn.Sigmoid()
+
+    def forward(self, x):
+        #  x = (b,c,w,h)
+        x_ = self.gap((int(x.shape[2]),int(x.shape[3])))(x)  # x_ = (b,c,1,1)
+        x_ = x_.squeeze()  # x_ = (b,c)
+        x_ = self.fc1(x_)  # x_ = (b, c/ratio)
+        x_ = self.relu(x_)
+        x_ = self.fc2(x_)  # x_ = (b, c) (or x_ = (c) if b = 1)
+        x_ = self.sig(x_)
+        if x_.shape[0] != x.shape[0]:  # if x_ == (c)
+          x_ = x_.unsqueeze(0)  # x_ = (1, c)
+        x_ = x_.unsqueeze(2).unsqueeze(3)  # x_ = (b, c, 1, 1)
+        return torch.multiply(x,x_)
+
+
 class Focus(nn.Module):
     # Focus wh information into c-space
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
